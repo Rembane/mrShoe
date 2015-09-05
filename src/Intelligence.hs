@@ -1,6 +1,7 @@
 module Intelligence (createDatabase, generateLine) where
 
 import Control.Applicative ((<$>))
+import Control.Monad (mapM)
 import Control.Monad.Trans.State (State, state)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -44,23 +45,21 @@ createDatabase prefixLen texts = DB { database = M.fromListWith (V.++)
                                       prefixLength = prefixLen
                                     }
 
+-- | Get a random suffix from a list of suffixes.
+getRandomSuffix :: Vector Text -> State StdGen Text
+getRandomSuffix ts = (ts V.!) <$> (randomR1 $ (V.length ts)-1)
+
 -- | Create the first phrase of a message.
--- TODO: Make pretty!
 firstPhrase :: DB -> State StdGen (Vector Text)
 firstPhrase db = do
-  (prefix, ss) <- fmap (\pidx -> M.elemAt pidx $ database db) (randomR1 $ (M.size $ database db)-1)
-  sidx         <- randomR1 $ (V.length ss)-1
-
-  return $ V.snoc prefix (ss V.! sidx)
+  let ddb = database db
+  (prefix, ss) <- (`M.elemAt` ddb) <$> (randomR1 $ (M.size ddb)-1)
+  (prefix `V.snoc`) <$> (getRandomSuffix ss)
 
 -- | Generate a randomly selected suffix for a prefix, and append it to the suffix.
 nextPhrase :: Vector Text -> DB -> State StdGen (Maybe (Vector Text))
-nextPhrase prefix db =
-  case M.lookup p' (database db) of
-      Nothing -> return Nothing
-      Just ws -> do
-        widx <- randomR1 $ (V.length ws)-1
-        return $ Just $ V.snoc prefix $ ws V.! widx
+nextPhrase prefix db = (fmap (prefix `V.snoc`)) <$> (sequenceA $ getRandomSuffix <$> (M.lookup p' (database db)))
+
   where
     len = prefixLength db
     p'  = V.slice (((V.length prefix)-1) - len) len prefix
