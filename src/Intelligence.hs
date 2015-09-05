@@ -1,5 +1,7 @@
 module Intelligence (createDatabase, generateLine) where
 
+import Control.Applicative ((<$>))
+import Control.Monad.Trans.State (State, state)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -19,9 +21,10 @@ data DB = DB {
   prefixLength :: Int
 }
 
--- | A specialisation of the randomR-function.
-randomR1 :: StdGen -> Int -> (Int, StdGen)
-randomR1 g max = randomR (0, max) g
+-- | A specialisation of the randomR-function which puts it in the State-monad.
+-- And sets the return type to Int with 0 as the smallest return value.
+randomR1 ::  Int -> State StdGen Int
+randomR1 max = state $ randomR (0, max)
 
 -- | The order of the Markov chain, or length of the prefix, in number of words.
 -- Returns a list of prefixes and their suffixes.
@@ -41,34 +44,38 @@ createDatabase prefixLen texts = DB { database = M.fromListWith (V.++)
                                       prefixLength = prefixLen
                                     }
 
-
 -- | Create the first phrase of a message.
-firstPhrase :: StdGen -> DB -> (Vector Text, StdGen)
-firstPhrase g db = let (pidx,   g' ) = randomR1 g  $ (M.size   $ database db)-1
-                       (sidx,   g'') = randomR1 g' $ (V.length            ss)-1
-                       (prefix, ss ) = M.elemAt pidx $ database db
-                    in (V.snoc prefix (ss V.! sidx), g'')
+-- TODO: Make pretty!
+firstPhrase :: DB -> State StdGen (Vector Text)
+firstPhrase db = do
+  (prefix, ss) <- fmap (\pidx -> M.elemAt pidx $ database db) (randomR1 $ (M.size $ database db)-1)
+  sidx         <- randomR1 $ (V.length ss)-1
+
+  return $ V.snoc prefix (ss V.! sidx)
 
 -- | Generate a randomly selected suffix for a prefix, and append it to the suffix.
-nextPhrase :: Vector Text -> StdGen -> DB -> (Maybe (Vector Text), StdGen)
-nextPhrase prefix g db = let len = prefixLength db
-                             p'  = V.slice (((V.length prefix)-1) - len) len prefix
-                          in case M.lookup p' (database db) of
-                               Nothing -> (Nothing, g)
-                               Just ws -> let (widx, g') = (randomR1 g $ (V.length ws)-1)
-                                           in (Just $ V.snoc prefix (ws V.! widx), g')
+nextPhrase :: Vector Text -> DB -> State StdGen (Maybe (Vector Text))
+nextPhrase prefix db =
+  case M.lookup p' (database db) of
+      Nothing -> return Nothing
+      Just ws -> do
+        widx <- randomR1 $ (V.length ws)-1
+        return $ Just $ V.snoc prefix $ ws V.! widx
+  where
+    len = prefixLength db
+    p'  = V.slice (((V.length prefix)-1) - len) len prefix
 
 -- | Use the Markov-chain to generate a line of a certain length.
-generateLine :: Int -> StdGen -> DB -> (Text, StdGen)
-generateLine length g db = (V.foldl1 (\t1 t2 -> t1 `T.append` (' ' `T.cons` t2)) result, g'')
-  where
-    (first, g')   = firstPhrase g db
-    (result, g'') = generateLine' length first g' db
+generateLine :: Int -> DB -> State StdGen Text
+generateLine length db = V.foldl1 (\t1 t2 -> t1 `T.append` (' ' `T.cons` t2)) 
+                      <$> (firstPhrase db >>= (generateLine' length db))
 
-    generateLine' :: Int -> Vector Text -> StdGen -> DB -> (Vector Text, StdGen)
-    generateLine' w ts g db = case nextPhrase ts g db of
-                                  (Nothing, g')  -> (ts, g')
-                                  (Just ts', g') -> if V.length ts' >= w
-                                                       then (ts', g')
-                                                       else let (ts'', g'') = generateLine' w ts' g' db
-                                                             in (ts' V.++ ts'', g'')
+  where
+    generateLine' :: Int -> DB -> Vector Text -> State StdGen (Vector Text)
+    generateLine' w db ts = do
+      np <- nextPhrase ts db 
+      case np of
+        Nothing  -> return ts
+        Just ts' -> if V.length ts' >= w
+                       then return ts'
+                       else (ts' V.++) <$> generateLine' w db ts' 
