@@ -17,11 +17,15 @@ cabal-version:       >=1.10
 
 executable mrShoe
   main-is:             Main.hs
-  other-modules:       ParseLog
+  other-modules:       Intelligence, ParseLog
   -- other-extensions:    
   build-depends:       base >= 4.8 && <4.9,
                        attoparsec >= 0.13.0.1,
-                       bytestring >= 0.10.6
---                       text >= 1.2.1
+                       bytestring >= 0.10.6,
+                       containers >= 0.5.6.2,
+                       random >= 1.1,
+                       text >= 1.2.1,
+                       text-icu >= 0.7.0.1,
+                       vector >= 0.11.0.0
   hs-source-dirs:      src
   default-language:    Haskell2010
