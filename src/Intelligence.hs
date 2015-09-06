@@ -1,4 +1,5 @@
-module Intelligence (createDatabase, generateLine) where
+{-# LANGUAGE OverloadedStrings #-}
+module Intelligence (DB, createDatabase, generateLine) where
 
 import Control.Applicative ((<$>))
 import Control.Monad (mapM)
