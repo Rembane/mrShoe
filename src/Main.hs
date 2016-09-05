@@ -8,6 +8,7 @@ import Control.Applicative ((<$>))
 import Control.Exception (bracket, bracket_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Lazy (get, gets, evalStateT, put, runState, StateT)
+import Control.Monad.Random (runRand)
 import Data.List (init, isInfixOf, isPrefixOf)
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -58,16 +59,16 @@ main = do
     loop st    = evalStateT run st
 
 readConfig :: IO Config
-readConfig = do 
+readConfig = do
   either (error . show) id <$> decodeFileEither "settings.yaml"
 
--- | Initialize global state, connect to the server 
+-- | Initialize global state, connect to the server
 --   and return the initial bot state.
 connect :: IO Bot
-connect = do 
+connect = do
   config <- readConfig
   g      <- getStdGen
-  db     <- createDatabase (prefixLength config) <$> (parseLog $ logFile config)
+  db     <- createDatabase (Main.prefixLength config) <$> (parseLog $ logFile config)
   printf "Connecting to %s ... " $ server config
   hFlush stdout
   h      <- connectTo (server config) (PortNumber (fromIntegral $ port config))
@@ -75,7 +76,7 @@ connect = do
   putStrLn "Done."
 
   return (Bot h g db config)
- 
+
 -- | We're in the Net monad now, so we've connected successfully
 -- Join a channel, and start processing commands
 run :: Net ()
@@ -85,7 +86,7 @@ run = do
   write "USER" $ (nick config) ++ " 0 * :mrShoe, the bot"
   write "JOIN" $ chan config
   gets socket >>= listen
- 
+
 -- Process each line from the server
 -- TODO: Convert all strings to Data.Text.Text
 listen :: Handle -> Net ()
@@ -98,7 +99,7 @@ listen h = forever $ do
     clean     = drop 1 . dropWhile (/= ':') . drop 1
     ping x    = "PING :" `isPrefixOf` x
     pong x    = write "PONG" (':' : drop 6 x)
- 
+
 -- | Dispatch a command on a certain input
 eval :: String -> Net ()
 eval     "!quit"               = write "QUIT" ":Exiting" >> liftIO (exitWith ExitSuccess)
@@ -118,16 +119,16 @@ eval     s                     = do
   where
     saySomething = do
       bot <- get
-      let (line, g') = runState (generateLine (prefixLength $ config bot) (db bot)) (generator bot)
+      let (line, g') = runRand (generateLine (Main.prefixLength $ config bot) (db bot)) (generator bot)
       put $ bot { generator = g' }
       privmsg $ T.unpack line
- 
+
 -- | Send a message to the current chan + server
 privmsg :: String -> Net ()
 privmsg s = do
   config <- gets config
   write "PRIVMSG" ((chan config) ++ " :" ++ s)
- 
+
 -- | Send a message out to the server we're currently connected to
 write :: String -> String -> Net ()
 write s t = do
